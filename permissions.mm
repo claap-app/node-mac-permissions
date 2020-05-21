@@ -8,10 +8,8 @@
 #import <EventKit/EventKit.h>
 #import <Foundation/Foundation.h>
 #import <Photos/Photos.h>
-#ifdef __MAC_OS_X_VERSION_MIN_REQUIRED
-  #if __MAC_OS_X_VERSION_MIN_REQUIRED >= 1050
-    #import <Speech/Speech.h>
-  #endif
+#ifdef AVAILABLE_MAC_OS_X_VERSION_10_15_AND_LATER 
+  #import <Speech/Speech.h>
 #endif
 #import <pwd.h>
 
