@@ -8,7 +8,7 @@
 #import <EventKit/EventKit.h>
 #import <Foundation/Foundation.h>
 #import <Photos/Photos.h>
-#ifdef AVAILABLE_MAC_OS_X_VERSION_10_15_AND_LATER 
+#if AVAILABLE_MAC_OS_X_VERSION_10_15_AND_LATER 
   #import <Speech/Speech.h>
 #endif
 #import <pwd.h>
