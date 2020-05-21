@@ -408,6 +408,7 @@ Napi::Promise AskForSpeechRecognitionAccess(const Napi::CallbackInfo &info) {
       env, Napi::Function::New(env, NoOp), "speechRecognitionCallback", 0, 1);
 
   if (@available(macOS 10.15, *)) {
+    #if AVAILABLE_MAC_OS_X_VERSION_10_15_AND_LATER 
     std::string auth_status = SpeechRecognitionAuthStatus();
 
     if (auth_status == "not determined") {
@@ -438,6 +439,7 @@ Napi::Promise AskForSpeechRecognitionAccess(const Napi::CallbackInfo &info) {
       ts_fn.Release();
       deferred.Resolve(Napi::String::New(env, auth_status));
     }
+    #endif
   } else {
     ts_fn.Release();
     deferred.Resolve(Napi::String::New(env, "authorized"));
