@@ -112,8 +112,8 @@ std::string ScreenAuthStatus() {
     NSNumber *ourProcessIdentifier =
         [NSNumber numberWithInteger:runningApplication.processIdentifier];
 
-    CFArrayRef windowList =
-        CGWindowListCopyWindowInfo(kCGWindowListOptionAll, kCGNullWindowID);
+    CFArrayRef windowList = CGWindowListCopyWindowInfo(
+        kCGWindowListOptionOnScreenOnly, kCGNullWindowID);
     int numberOfWindows = CFArrayGetCount(windowList);
     for (int index = 0; index < numberOfWindows; index++) {
       // get information for each window
@@ -529,52 +529,6 @@ Napi::Promise AskForMicrophoneAccess(const Napi::CallbackInfo &info) {
   return deferred.Promise();
 }
 
-bool HasOpenSystemPreferencesDialog() {
-  bool isDialogOpen = false;
-  CFArrayRef windowList;
-
-  // loops for max 1 second, breaks if/when dialog is found
-  for (int index = 0; index <= 4; index++) {
-    windowList = CGWindowListCopyWindowInfo(
-        kCGWindowListOptionOnScreenAboveWindow, kCGNullWindowID);
-    int numberOfWindows = CFArrayGetCount(windowList);
-
-    for (int windowIndex = 0; windowIndex < numberOfWindows; windowIndex++) {
-      NSDictionary *windowInfo =
-          (NSDictionary *)CFArrayGetValueAtIndex(windowList, windowIndex);
-      NSString *windowOwnerName = windowInfo[(id)kCGWindowOwnerName];
-      NSNumber *windowLayer = windowInfo[(id)kCGWindowLayer];
-      NSNumber *windowOwnerPID = windowInfo[(id)kCGWindowOwnerPID];
-
-      if ([windowLayer integerValue] == 0 &&
-          [windowOwnerName isEqual:@"universalAccessAuthWarn"]) {
-        // make sure the auth window is in the foreground
-        NSRunningApplication *authApplication = [NSRunningApplication
-            runningApplicationWithProcessIdentifier:[windowOwnerPID
-                                                        integerValue]];
-
-        if (!authApplication.active) {
-          [authApplication
-              activateWithOptions:NSApplicationActivateAllWindows];
-        }
-
-        isDialogOpen = true;
-        break;
-      }
-    }
-
-    CFRelease(windowList);
-
-    if (isDialogOpen) {
-      break;
-    }
-
-    usleep(250000);
-  }
-
-  return isDialogOpen;
-}
-
 // Request Screen Capture Access.
 void AskForScreenCaptureAccess(const Napi::CallbackInfo &info) {
   if (@available(macOS 10.15, *)) {
@@ -582,28 +536,24 @@ void AskForScreenCaptureAccess(const Napi::CallbackInfo &info) {
     // to the list in sysprefs if the user previously denied.
     // https://stackoverflow.com/questions/56597221/detecting-screen-recording-settings-on-macos-catalina
     CGDisplayStreamRef stream = CGDisplayStreamCreate(
-        CGMainDisplayID(), 1, 1, kCVPixelFormatType_32BGRA, NULL,
+        CGMainDisplayID(), 1, 1, kCVPixelFormatType_32BGRA, nil,
         ^(CGDisplayStreamFrameStatus status, uint64_t displayTime,
           IOSurfaceRef frameSurface, CGDisplayStreamUpdateRef updateRef){
         });
-
     if (stream) {
       CFRelease(stream);
     } else {
-      if (!HasOpenSystemPreferencesDialog()) {
-        NSWorkspace *workspace = [[NSWorkspace alloc] init];
-        NSString *pref_string =
-            @"x-apple.systempreferences:com.apple.preference."
-            @"security?Privacy_ScreenCapture";
-        [workspace openURL:[NSURL URLWithString:pref_string]];
-      }
+      NSWorkspace *workspace = [[NSWorkspace alloc] init];
+      NSString *pref_string = @"x-apple.systempreferences:com.apple.preference."
+                              @"security?Privacy_ScreenCapture";
+      [workspace openURL:[NSURL URLWithString:pref_string]];
     }
-  } 
+  }
 }
 
 // Request Accessibility Access.
 void AskForAccessibilityAccess(const Napi::CallbackInfo &info) {
-  NSDictionary *options = @{(id)kAXTrustedCheckOptionPrompt : @(NO)};
+  NSDictionary *options = @{(id)kAXTrustedCheckOptionPrompt : @(YES)};
   bool trusted = AXIsProcessTrustedWithOptions((CFDictionaryRef)options);
 
   if (!trusted) {
