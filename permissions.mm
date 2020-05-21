@@ -180,6 +180,7 @@ std::string SpeechRecognitionAuthStatus() {
   std::string auth_status = "not determined";
 
   if (@available(macOS 10.15, *)) {
+    #if AVAILABLE_MAC_OS_X_VERSION_10_15_AND_LATER 
     SFSpeechRecognizerAuthorizationStatus status =
         [SFSpeechRecognizer authorizationStatus];
 
@@ -189,9 +190,11 @@ std::string SpeechRecognitionAuthStatus() {
       auth_status = "denied";
     else if (status == SFSpeechRecognizerAuthorizationStatusRestricted)
       auth_status = "restricted";
+    #endif
   } else {
     auth_status = "authorized";
   }
+  
 
   return auth_status;
 }
