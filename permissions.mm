@@ -8,9 +8,6 @@
 #import <EventKit/EventKit.h>
 #import <Foundation/Foundation.h>
 #import <Photos/Photos.h>
-#if AVAILABLE_MAC_OS_X_VERSION_10_15_AND_LATER 
-  #import <Speech/Speech.h>
-#endif
 #import <pwd.h>
 
 /***** HELPER FUNCTIONS *****/
@@ -36,6 +33,55 @@ NSString *GetUserHomeFolderPath() {
   }
 
   return path;
+}
+
+// This method determines whether or not a system preferences security
+// authentication request is currently open on the user's screen and foregrounds
+// it if found
+bool HasOpenSystemPreferencesDialog() {
+  int MAX_NUM_LIKELY_OPEN_WINDOWS = 4;
+  bool isDialogOpen = false;
+  CFArrayRef windowList;
+
+  // loops for max 1 second, breaks if/when dialog is found
+  for (int index = 0; index <= MAX_NUM_LIKELY_OPEN_WINDOWS; index++) {
+    windowList = CGWindowListCopyWindowInfo(
+        kCGWindowListOptionOnScreenAboveWindow, kCGNullWindowID);
+    int numberOfWindows = CFArrayGetCount(windowList);
+
+    for (int windowIndex = 0; windowIndex < numberOfWindows; windowIndex++) {
+      NSDictionary *windowInfo =
+          (NSDictionary *)CFArrayGetValueAtIndex(windowList, windowIndex);
+      NSString *windowOwnerName = windowInfo[(id)kCGWindowOwnerName];
+      NSNumber *windowLayer = windowInfo[(id)kCGWindowLayer];
+      NSNumber *windowOwnerPID = windowInfo[(id)kCGWindowOwnerPID];
+
+      if ([windowLayer integerValue] == 0 &&
+          [windowOwnerName isEqual:@"universalAccessAuthWarn"]) {
+        // make sure the auth window is in the foreground
+        NSRunningApplication *authApplication = [NSRunningApplication
+            runningApplicationWithProcessIdentifier:[windowOwnerPID
+                                                        integerValue]];
+
+        [NSRunningApplication.currentApplication
+            activateWithOptions:NSApplicationActivateAllWindows];
+        [authApplication activateWithOptions:NSApplicationActivateAllWindows];
+
+        isDialogOpen = true;
+        break;
+      }
+    }
+
+    CFRelease(windowList);
+
+    if (isDialogOpen) {
+      break;
+    }
+
+    usleep(250000);
+  }
+
+  return isDialogOpen;
 }
 
 // Returns a status indicating whether the user has authorized Contacts
@@ -174,31 +220,6 @@ std::string MediaAuthStatus(const std::string &type) {
   return auth_status;
 }
 
-// Returns a status indicating whether the user has authorized speech
-// recognition access.
-std::string SpeechRecognitionAuthStatus() {
-  std::string auth_status = "not determined";
-
-  if (@available(macOS 10.15, *)) {
-    #if AVAILABLE_MAC_OS_X_VERSION_10_15_AND_LATER 
-    SFSpeechRecognizerAuthorizationStatus status =
-        [SFSpeechRecognizer authorizationStatus];
-
-    if (status == SFSpeechRecognizerAuthorizationStatusAuthorized)
-      auth_status = "authorized";
-    else if (status == SFSpeechRecognizerAuthorizationStatusDenied)
-      auth_status = "denied";
-    else if (status == SFSpeechRecognizerAuthorizationStatusRestricted)
-      auth_status = "restricted";
-    #endif
-  } else {
-    auth_status = "authorized";
-  }
-  
-
-  return auth_status;
-}
-
 // Returns a status indicating whether the user has authorized location
 // access.
 std::string LocationAuthStatus() {
@@ -257,8 +278,6 @@ Napi::Value GetAuthStatus(const Napi::CallbackInfo &info) {
     auth_status = MediaAuthStatus("microphone");
   } else if (type == "photos") {
     auth_status = PhotosAuthStatus();
-  } else if (type == "speech-recognition") {
-    auth_status = SpeechRecognitionAuthStatus();
   } else if (type == "camera") {
     auth_status = MediaAuthStatus("camera");
   } else if (type == "accessibility") {
@@ -400,54 +419,6 @@ Napi::Promise AskForCameraAccess(const Napi::CallbackInfo &info) {
   return deferred.Promise();
 }
 
-// Request Speech Recognition access.
-Napi::Promise AskForSpeechRecognitionAccess(const Napi::CallbackInfo &info) {
-  Napi::Env env = info.Env();
-  Napi::Promise::Deferred deferred = Napi::Promise::Deferred::New(env);
-  Napi::ThreadSafeFunction ts_fn = Napi::ThreadSafeFunction::New(
-      env, Napi::Function::New(env, NoOp), "speechRecognitionCallback", 0, 1);
-
-  if (@available(macOS 10.15, *)) {
-    #if AVAILABLE_MAC_OS_X_VERSION_10_15_AND_LATER 
-    std::string auth_status = SpeechRecognitionAuthStatus();
-
-    if (auth_status == "not determined") {
-      __block Napi::ThreadSafeFunction tsfn = ts_fn;
-      [SFSpeechRecognizer
-          requestAuthorization:^(SFSpeechRecognizerAuthorizationStatus status) {
-            auto callback = [=](Napi::Env env, Napi::Function js_cb,
-                                const char *granted) {
-              deferred.Resolve(Napi::String::New(env, granted));
-            };
-            tsfn.BlockingCall(
-                status == SFSpeechRecognizerAuthorizationStatusAuthorized
-                    ? "authorized"
-                    : "denied",
-                callback);
-            tsfn.Release();
-          }];
-    } else if (auth_status == "denied") {
-      NSWorkspace *workspace = [[NSWorkspace alloc] init];
-      NSString *pref_string = @"x-apple.systempreferences:com.apple.preference."
-                              @"security?Privacy_SpeechRecognition";
-
-      [workspace openURL:[NSURL URLWithString:pref_string]];
-
-      ts_fn.Release();
-      deferred.Resolve(Napi::String::New(env, "denied"));
-    } else {
-      ts_fn.Release();
-      deferred.Resolve(Napi::String::New(env, auth_status));
-    }
-    #endif
-  } else {
-    ts_fn.Release();
-    deferred.Resolve(Napi::String::New(env, "authorized"));
-  }
-
-  return deferred.Promise();
-}
-
 // Request Photos access.
 Napi::Promise AskForPhotosAccess(const Napi::CallbackInfo &info) {
   Napi::Env env = info.Env();
@@ -536,52 +507,6 @@ Napi::Promise AskForMicrophoneAccess(const Napi::CallbackInfo &info) {
   return deferred.Promise();
 }
 
-bool HasOpenSystemPreferencesDialog() {
-  bool isDialogOpen = false;
-  CFArrayRef windowList;
-
-  // loops for max 1 second, breaks if/when dialog is found
-  for (int index = 0; index <= 4; index++) {
-    windowList = CGWindowListCopyWindowInfo(
-        kCGWindowListOptionOnScreenAboveWindow, kCGNullWindowID);
-    int numberOfWindows = CFArrayGetCount(windowList);
-
-    for (int windowIndex = 0; windowIndex < numberOfWindows; windowIndex++) {
-      NSDictionary *windowInfo =
-          (NSDictionary *)CFArrayGetValueAtIndex(windowList, windowIndex);
-      NSString *windowOwnerName = windowInfo[(id)kCGWindowOwnerName];
-      NSNumber *windowLayer = windowInfo[(id)kCGWindowLayer];
-      NSNumber *windowOwnerPID = windowInfo[(id)kCGWindowOwnerPID];
-
-      if ([windowLayer integerValue] == 0 &&
-          [windowOwnerName isEqual:@"universalAccessAuthWarn"]) {
-        // make sure the auth window is in the foreground
-        NSRunningApplication *authApplication = [NSRunningApplication
-            runningApplicationWithProcessIdentifier:[windowOwnerPID
-                                                        integerValue]];
-
-        if (!authApplication.active) {
-          [authApplication
-              activateWithOptions:NSApplicationActivateAllWindows];
-        }
-
-        isDialogOpen = true;
-        break;
-      }
-    }
-
-    CFRelease(windowList);
-
-    if (isDialogOpen) {
-      break;
-    }
-
-    usleep(250000);
-  }
-
-  return isDialogOpen;
-}
-
 // Request Screen Capture Access.
 void AskForScreenCaptureAccess(const Napi::CallbackInfo &info) {
   if (@available(macOS 10.15, *)) {
@@ -605,7 +530,7 @@ void AskForScreenCaptureAccess(const Napi::CallbackInfo &info) {
         [workspace openURL:[NSURL URLWithString:pref_string]];
       }
     }
-  } 
+  }
 }
 
 // Request Accessibility Access.
@@ -637,8 +562,6 @@ Napi::Object Init(Napi::Env env, Napi::Object exports) {
               Napi::Function::New(env, AskForCameraAccess));
   exports.Set(Napi::String::New(env, "askForMicrophoneAccess"),
               Napi::Function::New(env, AskForMicrophoneAccess));
-  exports.Set(Napi::String::New(env, "askForSpeechRecognitionAccess"),
-              Napi::Function::New(env, AskForSpeechRecognitionAccess));
   exports.Set(Napi::String::New(env, "askForPhotosAccess"),
               Napi::Function::New(env, AskForPhotosAccess));
   exports.Set(Napi::String::New(env, "askForScreenCaptureAccess"),
