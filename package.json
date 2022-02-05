@@ -1,11 +1,12 @@
 {
   "name": "node-mac-permissions",
-  "version": "2.1.2",
+  "version": "2.1.7-patched",
   "description": "A native node module to manage system permissions on macOS",
   "main": "index.js",
   "scripts": {
-    "build": "node-gyp rebuild",
-    "clean": "node-gyp clean",
+    "build": "npx node-gyp@^8.0.0 rebuild",
+    "clean": "npx node-gyp@^8.0.0 clean",
+    "install": "npx node-gyp@^8.0.0 rebuild",
     "lint": "prettier --check index.js",
     "format": "clang-format -i permissions.mm && prettier --write index.js",
     "test": "./node_modules/.bin/mocha --reporter spec"
@@ -35,7 +36,7 @@
     "chai": "^4.2.0",
     "clang-format": "^1.3.0",
     "mocha": "^6.2.2",
-    "node-gyp": "^6.0.1",
+    "node-gyp": "^8.0.0",
     "prettier": "^2.0.4"
   }
 }
